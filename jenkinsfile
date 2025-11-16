@@ -1,0 +1,64 @@
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "username/my-app"
+    IMAGE_TAG = "${env.GIT_COMMIT.take(7)}"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Install Dependencies') {
+      steps {
+        sh 'npm ci'
+      }
+    }
+
+    stage('Run Tests') {
+      steps {
+        sh 'npm test'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+
+          sh '''
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+            docker push $IMAGE_NAME:$IMAGE_TAG
+          '''
+        }
+      }
+    }
+
+    stage('Deploy') {
+      steps {
+        sh '''
+          docker rm -f my-app || true
+          docker run -d -p 3000:3000 --name my-app $IMAGE_NAME:$IMAGE_TAG
+        '''
+      }
+    }
+
+  }
+
+  post {
+    always {
+      echo "Build selesai dengan status: ${currentBuild.currentResult}"
+    }
+  }
+}
